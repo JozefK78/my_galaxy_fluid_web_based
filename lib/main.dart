@@ -24,7 +24,7 @@ double clampValue(double x, double min, double max) {
   return x;
 }
 
-/// The main FLIP fluid class (ported from your JavaScript code)
+/// The main FLIP fluid class (includes the 'simulate' method)
 class FlipFluid {
   final double density;
   final int fNumX;
@@ -122,8 +122,542 @@ class FlipFluid {
     }
   }
 
-// ... (All other simulation methods remain unchanged)
-// Ensure that all methods from the user's original FlipFluid class are present here.
+  // --------------------- FLIP FLUID METHODS ---------------------
+
+  /// Integrates particle positions and velocities using simple Euler integration.
+  void integrateParticles(double dt, double gravity) {
+    for (int i = 0; i < numParticles; i++) {
+      particleVel[2 * i + 1] += dt * gravity;
+      particlePos[2 * i]     += particleVel[2 * i] * dt;
+      particlePos[2 * i + 1] += particleVel[2 * i + 1] * dt;
+    }
+  }
+
+  /// Pushes particles apart to prevent overlap.
+  void pushParticlesApart(int numIters) {
+    const double colorDiffusionCoeff = 0.001;
+    numCellParticles.fillRange(0, numCellParticles.length, 0);
+
+    // Count how many particles per cell
+    for (int i = 0; i < numParticles; i++) {
+      double x = particlePos[2 * i];
+      double y = particlePos[2 * i + 1];
+
+      int xi = clampValue((x * pInvSpacing).floorToDouble(), 0, pNumX - 1).toInt();
+      int yi = clampValue((y * pInvSpacing).floorToDouble(), 0, pNumY - 1).toInt();
+      int cellNr = xi * pNumY + yi;
+      numCellParticles[cellNr]++;
+    }
+
+    // Prefix sum
+    int first = 0;
+    for (int i = 0; i < pNumCells; i++) {
+      first += numCellParticles[i];
+      firstCellParticle[i] = first;
+    }
+    firstCellParticle[pNumCells] = first; // guard
+
+    // Fill in the cellParticleIds
+    for (int i = 0; i < numParticles; i++) {
+      double x = particlePos[2 * i];
+      double y = particlePos[2 * i + 1];
+
+      int xi = clampValue((x * pInvSpacing).floorToDouble(), 0, pNumX - 1).toInt();
+      int yi = clampValue((y * pInvSpacing).floorToDouble(), 0, pNumY - 1).toInt();
+      int cellNr = xi * pNumY + yi;
+      firstCellParticle[cellNr]--;
+      cellParticleIds[firstCellParticle[cellNr]] = i;
+    }
+
+    double minDist = 2.0 * particleRadius;
+    double minDist2 = minDist * minDist;
+
+    // The iterative push
+    for (int iter = 0; iter < numIters; iter++) {
+      for (int i = 0; i < numParticles; i++) {
+        double px = particlePos[2 * i];
+        double py = particlePos[2 * i + 1];
+
+        int pxi = (px * pInvSpacing).floor();
+        int pyi = (py * pInvSpacing).floor();
+
+        int x0 = math.max(pxi - 1, 0);
+        int y0 = math.max(pyi - 1, 0);
+        int x1 = math.min(pxi + 1, pNumX - 1);
+        int y1 = math.min(pyi + 1, pNumY - 1);
+
+        for (int xi = x0; xi <= x1; xi++) {
+          for (int yi = y0; yi <= y1; yi++) {
+            int cellNr = xi * pNumY + yi;
+            int firstIdx = firstCellParticle[cellNr];
+            int last = firstCellParticle[cellNr + 1];
+            for (int j = firstIdx; j < last; j++) {
+              int id = cellParticleIds[j];
+              if (id == i) continue;
+
+              double qx = particlePos[2 * id];
+              double qy = particlePos[2 * id + 1];
+              double dx = qx - px;
+              double dy = qy - py;
+              double d2 = dx * dx + dy * dy;
+              if (d2 > minDist2 || d2 == 0.0) continue;
+
+              double d = math.sqrt(d2);
+              double s = 0.5 * (minDist - d) / d;
+              dx *= s;
+              dy *= s;
+              particlePos[2 * i]     -= dx;
+              particlePos[2 * i + 1] -= dy;
+              particlePos[2 * id]    += dx;
+              particlePos[2 * id + 1] += dy;
+
+              // Diffuse colors
+              for (int k = 0; k < 3; k++) {
+                double color0 = particleColor[3 * i + k];
+                double color1 = particleColor[3 * id + k];
+                double color = (color0 + color1) * 0.5;
+                particleColor[3 * i + k] =
+                    color0 + (color - color0) * colorDiffusionCoeff;
+                particleColor[3 * id + k] =
+                    color1 + (color - color1) * colorDiffusionCoeff;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /// Handles collisions between particles and the obstacle or walls.
+  void handleParticleCollisions(
+      double obstacleX, double obstacleY, double obstacleRadius,
+      double obstacleVelX, double obstacleVelY) {
+    double h_ = 1.0 / fInvSpacing;
+    double r = particleRadius;
+    double minDist = obstacleRadius + r;
+    double minDist2 = minDist * minDist;
+
+    double minX = h_ + r;
+    double maxX = (fNumX - 1) * h_ - r;
+    double minY = h_ + r;
+    double maxY = (fNumY - 1) * h_ - r;
+
+    for (int i = 0; i < numParticles; i++) {
+      double x = particlePos[2 * i];
+      double y = particlePos[2 * i + 1];
+
+      double dx = x - obstacleX;
+      double dy = y - obstacleY;
+      double d2 = dx * dx + dy * dy;
+
+      // Obstacle collision
+      if (d2 < minDist2) {
+        // Instead of repositioning, we set velocity to that of obstacle
+        particleVel[2 * i] = obstacleVelX;
+        particleVel[2 * i + 1] = obstacleVelY;
+      }
+
+      // Wall collisions
+      if (x < minX) {
+        x = minX;
+        particleVel[2 * i] = 0.0;
+      }
+      if (x > maxX) {
+        x = maxX;
+        particleVel[2 * i] = 0.0;
+      }
+      if (y < minY) {
+        y = minY;
+        particleVel[2 * i + 1] = 0.0;
+      }
+      if (y > maxY) {
+        y = maxY;
+        particleVel[2 * i + 1] = 0.0;
+      }
+      particlePos[2 * i] = x;
+      particlePos[2 * i + 1] = y;
+    }
+  }
+
+  /// Updates particle density based on their positions.
+  void updateParticleDensity() {
+    int n = fNumY;
+    double h_ = h;
+    double h1 = fInvSpacing;
+    double h2 = 0.5 * h_;
+
+    particleDensity.fillRange(0, particleDensity.length, 0.0);
+
+    for (int i = 0; i < numParticles; i++) {
+      double x = particlePos[2 * i];
+      double y = particlePos[2 * i + 1];
+
+      x = clampValue(x, h_, (fNumX - 1) * h_);
+      y = clampValue(y, h_, (fNumY - 1) * h_);
+
+      int x0 = ((x - h2) * h1).floor();
+      double tx = ((x - h2) - x0 * h_) * h1;
+      int x1 = math.min(x0 + 1, fNumX - 2);
+
+      int y0 = ((y - h2) * h1).floor();
+      double ty = ((y - h2) - y0 * h_) * h1;
+      int y1 = math.min(y0 + 1, fNumY - 2);
+
+      double sx = 1.0 - tx;
+      double sy = 1.0 - ty;
+
+      if (x0 >= 0 && y0 >= 0) {
+        particleDensity[x0 * n + y0] += sx * sy;
+      }
+      if (x1 >= 0 && y0 >= 0) {
+        particleDensity[x1 * n + y0] += tx * sy;
+      }
+      if (x1 >= 0 && y1 >= 0) {
+        particleDensity[x1 * n + y1] += tx * ty;
+      }
+      if (x0 >= 0 && y1 >= 0) {
+        particleDensity[x0 * n + y1] += sx * ty;
+      }
+    }
+
+    if (particleRestDensity == 0.0) {
+      double sum = 0.0;
+      int numFluidCells = 0;
+      for (int i = 0; i < fNumCells; i++) {
+        if (cellType[i] == CellType.fluid.index) {
+          sum += particleDensity[i];
+          numFluidCells++;
+        }
+      }
+      if (numFluidCells > 0) {
+        particleRestDensity = sum / numFluidCells;
+      }
+    }
+  }
+
+  /// Transfers velocities between particles and grid.
+  void transferVelocities(bool toGrid, [double flipRatio = 0.0]) {
+    int n = fNumY;
+    double h_ = h;
+    double h1 = fInvSpacing;
+    double h2 = 0.5 * h_;
+
+    if (toGrid) {
+      prevU.setAll(0, u);
+      prevV.setAll(0, v);
+
+      du.fillRange(0, du.length, 0.0);
+      dv.fillRange(0, dv.length, 0.0);
+      u.fillRange(0, u.length, 0.0);
+      v.fillRange(0, v.length, 0.0);
+
+      // Mark cell types as AIR, then FLUID if a particle is in the cell
+      for (int i = 0; i < fNumCells; i++) {
+        cellType[i] = (s[i] == 0.0) ? CellType.solid.index : CellType.air.index;
+      }
+      for (int i = 0; i < numParticles; i++) {
+        double x = particlePos[2 * i];
+        double y = particlePos[2 * i + 1];
+
+        int xi = clampValue((x * h1).floorToDouble(), 0, fNumX - 1).toInt();
+        int yi = clampValue((y * h1).floorToDouble(), 0, fNumY - 1).toInt();
+        int cellNr = xi * n + yi;
+        if (cellType[cellNr] == CellType.air.index) {
+          cellType[cellNr] = CellType.fluid.index;
+        }
+      }
+    }
+
+    // For each velocity component
+    for (int component = 0; component < 2; component++) {
+      double dx = (component == 0) ? 0.0 : h2;
+      double dy = (component == 0) ? h2 : 0.0;
+
+      Float32List fArr = (component == 0) ? u : v;
+      Float32List prevF = (component == 0) ? prevU : prevV;
+      Float32List dArr = (component == 0) ? du : dv;
+
+      for (int i = 0; i < numParticles; i++) {
+        double x = particlePos[2 * i];
+        double y = particlePos[2 * i + 1];
+
+        x = clampValue(x, h_, (fNumX - 1) * h_);
+        y = clampValue(y, h_, (fNumY - 1) * h_);
+
+        int x0 = math.min(((x - dx) * h1).floor(), fNumX - 2);
+        double tx = ((x - dx) - x0 * h_) * h1;
+        int x1 = math.min(x0 + 1, fNumX - 2);
+
+        int y0 = math.min(((y - dy) * h1).floor(), fNumY - 2);
+        double ty = ((y - dy) - y0 * h_) * h1;
+        int y1 = math.min(y0 + 1, fNumY - 2);
+
+        double sx = 1.0 - tx;
+        double sy = 1.0 - ty;
+
+        double d0 = sx * sy;
+        double d1 = tx * sy;
+        double d2 = tx * ty;
+        double d3 = sx * ty;
+
+        int nr0 = x0 * n + y0;
+        int nr1 = x1 * n + y0;
+        int nr2 = x1 * n + y1;
+        int nr3 = x0 * n + y1;
+
+        if (toGrid) {
+          // from particleVel to grid
+          double pv = particleVel[2 * i + component];
+          fArr[nr0] += pv * d0;
+          dArr[nr0] += d0;
+
+          fArr[nr1] += pv * d1;
+          dArr[nr1] += d1;
+
+          fArr[nr2] += pv * d2;
+          dArr[nr2] += d2;
+
+          fArr[nr3] += pv * d3;
+          dArr[nr3] += d3;
+
+        } else {
+          // from grid to particleVel (FLIP or PIC)
+          int offset = (component == 0) ? n : 1;
+
+          double valid0 = (cellType[nr0] != CellType.air.index ||
+              cellType[nr0 - offset] != CellType.air.index)
+              ? 1.0
+              : 0.0;
+          double valid1 = (cellType[nr1] != CellType.air.index ||
+              cellType[nr1 - offset] != CellType.air.index)
+              ? 1.0
+              : 0.0;
+          double valid2 = (cellType[nr2] != CellType.air.index ||
+              cellType[nr2 - offset] != CellType.air.index)
+              ? 1.0
+              : 0.0;
+          double valid3 = (cellType[nr3] != CellType.air.index ||
+              cellType[nr3 - offset] != CellType.air.index)
+              ? 1.0
+              : 0.0;
+
+          double v_ = particleVel[2 * i + component];
+          double d_ = valid0 * d0 + valid1 * d1 + valid2 * d2 + valid3 * d3;
+
+          if (d_ > 0.0) {
+            double picV = (valid0 * d0 * fArr[nr0] +
+                valid1 * d1 * fArr[nr1] +
+                valid2 * d2 * fArr[nr2] +
+                valid3 * d3 * fArr[nr3]) /
+                d_;
+
+            double corr = (valid0 * d0 * (fArr[nr0] - prevF[nr0]) +
+                valid1 * d1 * (fArr[nr1] - prevF[nr1]) +
+                valid2 * d2 * (fArr[nr2] - prevF[nr2]) +
+                valid3 * d3 * (fArr[nr3] - prevF[nr3])) /
+                d_;
+
+            double flipV = v_ + corr;
+            particleVel[2 * i + component] =
+                (1.0 - flipRatio) * picV + flipRatio * flipV;
+          }
+        }
+      }
+
+      if (toGrid) {
+        // finalize the grid velocities
+        for (int i = 0; i < fArr.length; i++) {
+          if (dArr[i] > 0.0) {
+            fArr[i] /= dArr[i];
+          }
+        }
+
+        // restore solid cells
+        for (int i = 0; i < fNumX; i++) {
+          for (int j = 0; j < fNumY; j++) {
+            bool solid = (cellType[i * n + j] == CellType.solid.index);
+            if (solid ||
+                (i > 0 && cellType[(i - 1) * n + j] == CellType.solid.index)) {
+              u[i * n + j] = prevU[i * n + j];
+            }
+            if (solid ||
+                (j > 0 && cellType[i * n + j - 1] == CellType.solid.index)) {
+              v[i * n + j] = prevV[i * n + j];
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /// Solves for incompressibility using the pressure projection method.
+  void solveIncompressibility(
+      int numIters, double dt, double overRelaxation, bool compensateDrift) {
+    p.fillRange(0, p.length, 0.0);
+    prevU.setAll(0, u);
+    prevV.setAll(0, v);
+
+    int n = fNumY;
+    double cp = density * h / dt;
+
+    for (int iter = 0; iter < numIters; iter++) {
+      for (int i = 1; i < fNumX - 1; i++) {
+        for (int j = 1; j < fNumY - 1; j++) {
+          if (cellType[i * n + j] != CellType.fluid.index) continue;
+
+          int center = i * n + j;
+          int left = (i - 1) * n + j;
+          int right = (i + 1) * n + j;
+          int bottom = i * n + j - 1;
+          int top = i * n + j + 1;
+
+          double sx0 = s[left];
+          double sx1 = s[right];
+          double sy0 = s[bottom];
+          double sy1 = s[top];
+          double s_ = sx0 + sx1 + sy0 + sy1;
+          if (s_ == 0.0) continue;
+
+          double div = u[right] - u[center] + v[top] - v[center];
+
+          if (particleRestDensity > 0.0 && compensateDrift) {
+            // Additional correction for compression
+            double compression = particleDensity[center] - particleRestDensity;
+            if (compression > 0.0) {
+              double k = 1.0;
+              div = div - k * compression;
+            }
+          }
+
+          double p_ = -div / s_;
+          p_ *= overRelaxation;
+          p[center] += cp * p_;
+
+          u[center] -= sx0 * p_;
+          u[right]  += sx1 * p_;
+          v[center] -= sy0 * p_;
+          v[top]    += sy1 * p_;
+        }
+      }
+    }
+  }
+
+  /// Updates particle colors based on density and other factors.
+  void updateParticleColors() {
+    double h1 = fInvSpacing;
+
+    for (int i = 0; i < numParticles; i++) {
+      // fade to white (example logic)
+      double s = 0.01;
+      particleColor[3 * i]     = clampValue(particleColor[3 * i] - s, 0.0, 1.0);
+      particleColor[3 * i + 1] = clampValue(particleColor[3 * i + 1] - s, 0.0, 1.0);
+      particleColor[3 * i + 2] = clampValue(particleColor[3 * i + 2] + s, 0.0, 1.0);
+
+      double x = particlePos[2 * i];
+      double y = particlePos[2 * i + 1];
+      int xi = clampValue((x * h1).floorToDouble(), 1, fNumX - 1).toInt();
+      int yi = clampValue((y * h1).floorToDouble(), 1, fNumY - 1).toInt();
+      int cellNr = xi * fNumY + yi;
+
+      double d0 = particleRestDensity;
+      if (d0 > 0.0) {
+        double relDensity = particleDensity[cellNr] / d0;
+        if (relDensity < 0.7) {
+          double s_ = 0.8;
+          particleColor[3 * i]     = s_;
+          particleColor[3 * i + 1] = s_;
+          particleColor[3 * i + 2] = 1.0;
+        }
+      }
+    }
+  }
+
+  /// Sets scientific color mapping for visualization.
+  void setSciColor(int cellNr, double val, double minVal, double maxVal) {
+    val = math.min(math.max(val, minVal), maxVal - 0.0001);
+    double d = maxVal - minVal;
+    double norm = (d == 0.0) ? 0.5 : (val - minVal) / d;
+    double m = 0.25;
+    int num = (norm / m).floor();
+    double s = (norm - num * m) / m;
+    double r, g, b;
+    switch (num) {
+      case 0:
+        r = 0.0;
+        g = s;
+        b = 1.0;
+        break;
+      case 1:
+        r = 0.0;
+        g = 1.0;
+        b = 1.0 - s;
+        break;
+      case 2:
+        r = s;
+        g = 1.0;
+        b = 0.0;
+        break;
+      case 3:
+      default:
+        r = 1.0;
+        g = 1.0 - s;
+        b = 0.0;
+        break;
+    }
+    cellColor[3 * cellNr]     = r;
+    cellColor[3 * cellNr + 1] = g;
+    cellColor[3 * cellNr + 2] = b;
+  }
+
+  /// Updates cell colors based on their types and densities.
+  void updateCellColors() {
+    // Clear
+    cellColor.fillRange(0, cellColor.length, 0.0);
+    for (int i = 0; i < fNumCells; i++) {
+      if (cellType[i] == CellType.solid.index) {
+        cellColor[3 * i]     = 0.5;
+        cellColor[3 * i + 1] = 0.5;
+        cellColor[3 * i + 2] = 0.5;
+      } else if (cellType[i] == CellType.fluid.index) {
+        double d = particleDensity[i];
+        if (particleRestDensity > 0.0) d /= particleRestDensity;
+        setSciColor(i, d, 0.0, 2.0);
+      }
+    }
+  }
+
+  /// The main time-step simulation.
+  void simulate(
+      double dt,
+      double gravity,
+      double flipRatio,
+      int numPressureIters,
+      int numParticleIters,
+      double overRelaxation,
+      bool compensateDrift,
+      bool separateParticles,
+      double obstacleX,
+      double obstacleY,
+      double obstacleRadius,
+      double obstacleVelX,
+      double obstacleVelY) {
+    int numSubSteps = 1;
+    double sdt = dt / numSubSteps;
+    for (int step = 0; step < numSubSteps; step++) {
+      integrateParticles(sdt, gravity);
+      if (separateParticles) {
+        pushParticlesApart(numParticleIters);
+      }
+      handleParticleCollisions(obstacleX, obstacleY, obstacleRadius,
+          obstacleVelX, obstacleVelY);
+      transferVelocities(true);
+      updateParticleDensity();
+      solveIncompressibility(numPressureIters, sdt, overRelaxation, compensateDrift);
+      transferVelocities(false, flipRatio);
+    }
+    updateParticleColors();
+    updateCellColors();
+  }
 }
 
 /// A small holder for scene data
@@ -225,16 +759,6 @@ class _FluidDemoPageState extends State<FluidDemoPage>
     super.dispose();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-
-    if (!_isSceneInitialized) {
-      // Simulation setup is deferred to the build method where canvas size is known
-      _isSceneInitialized = true; // Mark as initialized
-    }
-  }
-
   /// Initializes the simulation scene based on the canvas size.
   void setupScene(double canvasWidth, double canvasHeight) {
     // Calculate scaling factors
@@ -322,25 +846,43 @@ class _FluidDemoPageState extends State<FluidDemoPage>
   }
 
   /// Handles obstacle interaction based on gesture details.
-  void _handleObstacleInteraction(DragUpdateDetails details, double cScale, Size canvasSize) {
-    // Calculate local position relative to the entire screen
-    final RenderBox box = context.findRenderObject() as RenderBox;
-    final Offset localPos = box.globalToLocal(details.globalPosition);
+  void _handleObstacleInteraction(dynamic details, double cScale, Size canvasSize) {
+    if (details is DragDownDetails) {
+      // Handle DragDownDetails
+      final Offset localPos = details.localPosition;
 
-    // Adjust for the control panel's width (250 pixels)
-    double controlPanelWidth = 250.0;
-    double adjustedX = (localPos.dx - controlPanelWidth) / cScale;
-    double adjustedY = (canvasSize.height - localPos.dy) / cScale; // Flip Y-axis
+      // Adjust for the control panel's width (250 pixels)
+      double controlPanelWidth = 250.0;
+      double adjustedX = (localPos.dx - controlPanelWidth) / cScale;
+      double adjustedY = (canvasSize.height - localPos.dy) / cScale; // Flip Y-axis
 
-    // Clamp to simulation boundaries
-    adjustedX = adjustedX.clamp(0.0, simWidth);
-    adjustedY = adjustedY.clamp(0.0, simHeight);
+      // Clamp to simulation boundaries
+      adjustedX = adjustedX.clamp(0.0, simWidth);
+      adjustedY = adjustedY.clamp(0.0, simHeight);
 
-    setState(() {
-      scene.obstacleX = adjustedX;
-      scene.obstacleY = adjustedY;
-      // Optionally, set velocities based on drag
-    });
+      setState(() {
+        scene.obstacleX = adjustedX;
+        scene.obstacleY = adjustedY;
+        scene.paused = false; // Unpause when interacting
+      });
+    } else if (details is DragUpdateDetails) {
+      // Handle DragUpdateDetails
+      final Offset localPos = details.localPosition;
+
+      // Adjust for the control panel's width (250 pixels)
+      double controlPanelWidth = 250.0;
+      double adjustedX = (localPos.dx - controlPanelWidth) / cScale;
+      double adjustedY = (canvasSize.height - localPos.dy) / cScale; // Flip Y-axis
+
+      // Clamp to simulation boundaries
+      adjustedX = adjustedX.clamp(0.0, simWidth);
+      adjustedY = adjustedY.clamp(0.0, simHeight);
+
+      setState(() {
+        scene.obstacleX = adjustedX;
+        scene.obstacleY = adjustedY;
+      });
+    }
   }
 
   @override
@@ -443,9 +985,6 @@ class _FluidDemoPageState extends State<FluidDemoPage>
                   onPanDown: (details) {
                     pointerDown = true;
                     _handleObstacleInteraction(details, cScaleLocal, Size(canvasWidth, canvasHeight));
-                    setState(() {
-                      scene.paused = false; // Unpause when interacting
-                    });
                   },
                   onPanUpdate: (details) {
                     if (pointerDown) {
