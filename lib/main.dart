@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart'; // For Ticker
+import 'dart:ui';
+
 
 
 void main() {
@@ -784,8 +786,8 @@ class _FluidDemoPageState extends State<FluidDemoPage>
     double h = tankHeight / res;
     double density = 1000.0;
 
-    double relWaterHeight = 0.8;
-    double relWaterWidth = 0.6;
+    double relWaterHeight = 0.4;
+    double relWaterWidth = 0.3;
 
     double r = 0.3 * h; // particle radius
     double dx = 2.0 * r;
@@ -988,102 +990,120 @@ class FluidPainter extends CustomPainter {
   final double simHeight;
   final double cScale;
 
+  // Reusable Paint objects to optimize performance
+  final Paint _backgroundPaint = Paint()..color = Colors.black;
+  final Paint _gridPaint = Paint();
+  final Paint _particlePaint = Paint()
+    ..color = Colors.white
+    ..style = PaintingStyle.fill
+    ..strokeCap = StrokeCap.round
+    ..strokeWidth = 2.0; // Adjust based on particle size
+
+  final Paint _obstaclePaint = Paint()
+    ..color = Colors.red
+    ..style = PaintingStyle.fill;
+
   FluidPainter(this.scene, this.simWidth, this.simHeight, this.cScale);
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Paint background
+    // 1. Draw Background
     canvas.drawRect(
       Rect.fromLTWH(0, 0, size.width, size.height),
-      Paint()..color = Colors.black,
+      _backgroundPaint,
     );
 
-    final fluid = scene.fluid;
+    final FlipFluid fluid = scene.fluid;
 
-    // Optionally draw the grid
+    // 2. Draw Grid (Optional)
     if (scene.showGrid) {
       _drawGrid(canvas, fluid);
     }
 
-    // Optionally draw the particles
+    // 3. Draw Particles (Optional)
     if (scene.showParticles) {
       _drawParticles(canvas, fluid);
     }
 
-    // Draw the obstacle
+    // 4. Draw Obstacle
     _drawObstacle(canvas, fluid);
   }
 
+  /// Draws the simulation grid.
   void _drawGrid(Canvas canvas, FlipFluid f) {
-    // Each cell is of size f.h in the simulation.
-    // We'll draw a rectangle for each cell, colored by cellColor.
-    final n = f.fNumY;
-    final paint = Paint();
+    final int n = f.fNumY; // Number of cells vertically
 
     for (int i = 0; i < f.fNumX; i++) {
       for (int j = 0; j < f.fNumY; j++) {
         int cellNr = i * n + j;
+
+        // Retrieve color components for the cell
         double r = f.cellColor[3 * cellNr];
         double g = f.cellColor[3 * cellNr + 1];
         double b = f.cellColor[3 * cellNr + 2];
-        paint.color = Color.fromARGB(255, (r * 255).floor(),
-            (g * 255).floor(), (b * 255).floor());
 
+        // Set the paint color
+        _gridPaint.color = Color.fromARGB(
+          255,
+          (r * 255).floor(),
+          (g * 255).floor(),
+          (b * 255).floor(),
+        );
+
+        // Calculate the position of the cell
         double x = i * f.h;
         double y = j * f.h;
-        // Flip y for our screen (since sim's y=0 at bottom)
-        // We'll interpret it such that 0 at bottom => 0 at top is offset
-        double sy = (simHeight - (y + f.h));
+        double sy = simHeight - (y + f.h); // Flip Y-axis for Flutter
 
-        final rect = Rect.fromLTWH(
+        // Define the rectangle for the cell
+        final Rect rect = Rect.fromLTWH(
           x * cScale,
           sy * cScale,
           f.h * cScale,
           f.h * cScale,
         );
-        canvas.drawRect(rect, paint);
+
+        // Draw the cell
+        canvas.drawRect(rect, _gridPaint);
       }
     }
   }
 
+  /// Draws all the particles using a single drawPoints call for efficiency.
   void _drawParticles(Canvas canvas, FlipFluid f) {
-    // We'll draw each particle as a circle
-    final paint = Paint();
+    final List<Offset> points = <Offset>[];
+
     for (int i = 0; i < f.numParticles; i++) {
       double x = f.particlePos[2 * i];
       double y = f.particlePos[2 * i + 1];
+      double sy = simHeight - y; // Flip Y-axis
 
-      // color
-      double r = f.particleColor[3 * i];
-      double g = f.particleColor[3 * i + 1];
-      double b = f.particleColor[3 * i + 2];
-      paint.color = Color.fromARGB(
-          255, (r * 255).floor(), (g * 255).floor(), (b * 255).floor());
+      // Ensure particles are within simulation bounds
+      if (x < 0 || x > simWidth || y < 0 || y > simHeight) continue;
 
-      // flip y
-      double sy = (simHeight - y);
-      double radius = f.particleRadius * cScale;
-
-      canvas.drawCircle(Offset(x * cScale, sy * cScale), radius, paint);
+      points.add(Offset(x * cScale, sy * cScale));
     }
+
+    // Draw all particles in a single draw call
+    canvas.drawPoints(PointMode.points, points, _particlePaint);
   }
 
+  /// Draws the obstacle within the simulation.
   void _drawObstacle(Canvas canvas, FlipFluid f) {
-    final paint = Paint()
-      ..color = Colors.red
-      ..style = PaintingStyle.fill;
-    double x = scene.obstacleX;
-    double y = scene.obstacleY;
-    double sy = (simHeight - y);
+    double x = scene.obstacleX * cScale;
+    double y = (simHeight - scene.obstacleY) * cScale; // Flip Y-axis
+    double radius = (scene.obstacleRadius + f.particleRadius) * cScale;
+
+    // Draw the obstacle as a circle
     canvas.drawCircle(
-      Offset(x * cScale, sy * cScale),
-      (scene.obstacleRadius + f.particleRadius) * cScale,
-      paint,
+      Offset(x, y),
+      radius,
+      _obstaclePaint,
     );
   }
 
   @override
   bool shouldRepaint(covariant FluidPainter oldDelegate) {
-    return true; // repaint every frame
+    return true; // Repaint every frame for continuous animation
   }
 }
