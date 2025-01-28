@@ -1,3 +1,5 @@
+// lib/main.dart
+
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -34,22 +36,22 @@ class FlipFluid {
   final int fNumCells;
 
   // Grid-based arrays
-  final Float32List u;   // x-velocity
-  final Float32List v;   // y-velocity
+  final Float32List u; // x-velocity
+  final Float32List v; // y-velocity
   final Float32List du;
   final Float32List dv;
   final Float32List prevU;
   final Float32List prevV;
-  final Float32List p;   // pressure
-  final Float32List s;   // solid mask [1.0 -> fluid, 0.0 -> solid]
+  final Float32List p; // pressure
+  final Float32List s; // solid mask [1.0 -> fluid, 0.0 -> solid]
   final Int32List cellType;
   final Float32List cellColor;
 
   // Particle-based arrays
   final int maxParticles;
-  final Float32List particlePos;    // x,y
-  final Float32List particleColor;  // r,g,b
-  final Float32List particleVel;    // vx,vy
+  final Float32List particlePos; // x,y
+  final Float32List particleColor; // r,g,b
+  final Float32List particleVel; // vx,vy
   final Float32List particleDensity;
   double particleRestDensity = 0.0;
 
@@ -72,12 +74,13 @@ class FlipFluid {
       double spacing,
       this.particleRadius,
       this.maxParticles,
-      ) : fNumX = (width / spacing).floor() + 1,
+      )  : fNumX = (width / spacing).floor() + 1,
         fNumY = (height / spacing).floor() + 1,
         h = math.max(width / ((width / spacing).floor() + 1),
             height / ((height / spacing).floor() + 1)),
-        fInvSpacing = 1.0 / math.max(width / ((width / spacing).floor() + 1),
-            height / ((height / spacing).floor() + 1)),
+        fInvSpacing = 1.0 /
+            math.max(width / ((width / spacing).floor() + 1),
+                height / ((height / spacing).floor() + 1)),
         fNumCells = ((width / spacing).floor() + 1) *
             ((height / spacing).floor() + 1),
         u = Float32List(((width / spacing).floor() + 1) *
@@ -98,7 +101,8 @@ class FlipFluid {
             ((height / spacing).floor() + 1)),
         cellType = Int32List(((width / spacing).floor() + 1) *
             ((height / spacing).floor() + 1)),
-        cellColor = Float32List(3 * ((width / spacing).floor() + 1) *
+        cellColor = Float32List(3 *
+            ((width / spacing).floor() + 1) *
             ((height / spacing).floor() + 1)),
         particlePos = Float32List(2 * maxParticles),
         particleColor = Float32List(3 * maxParticles),
@@ -110,12 +114,14 @@ class FlipFluid {
         pNumY = (height * (1.0 / (2.2 * particleRadius))).floor() + 1,
         pNumCells = ((width * (1.0 / (2.2 * particleRadius))).floor() + 1) *
             ((height * (1.0 / (2.2 * particleRadius))).floor() + 1),
-        numCellParticles = Int32List(((width * (1.0/(2.2*particleRadius))).floor() + 1) *
-            ((height*(1.0/(2.2*particleRadius))).floor() + 1)),
-        firstCellParticle = Int32List((((width*(1.0/(2.2*particleRadius))).floor() + 1) *
-            ((height*(1.0/(2.2*particleRadius))).floor() + 1)) + 1),
-        cellParticleIds = Int32List(maxParticles)
-  {
+        numCellParticles = Int32List(
+            ((width * (1.0 / (2.2 * particleRadius))).floor() + 1) *
+                ((height * (1.0 / (2.2 * particleRadius))).floor() + 1)),
+        firstCellParticle = Int32List(
+            (((width * (1.0 / (2.2 * particleRadius))).floor() + 1) *
+                ((height * (1.0 / (2.2 * particleRadius))).floor() + 1)) +
+                1),
+        cellParticleIds = Int32List(maxParticles) {
     // Initialize all particle colors to blue
     for (int i = 0; i < maxParticles; i++) {
       particleColor[3 * i + 2] = 1.0;
@@ -128,7 +134,7 @@ class FlipFluid {
   void integrateParticles(double dt, double gravity) {
     for (int i = 0; i < numParticles; i++) {
       particleVel[2 * i + 1] += dt * gravity;
-      particlePos[2 * i]     += particleVel[2 * i] * dt;
+      particlePos[2 * i] += particleVel[2 * i] * dt;
       particlePos[2 * i + 1] += particleVel[2 * i + 1] * dt;
     }
   }
@@ -206,9 +212,9 @@ class FlipFluid {
               double s = 0.5 * (minDist - d) / d;
               dx *= s;
               dy *= s;
-              particlePos[2 * i]     -= dx;
+              particlePos[2 * i] -= dx;
               particlePos[2 * i + 1] -= dy;
-              particlePos[2 * id]    += dx;
+              particlePos[2 * id] += dx;
               particlePos[2 * id + 1] += dy;
 
               // Diffuse colors
@@ -230,8 +236,11 @@ class FlipFluid {
 
   /// Handles collisions between particles and the obstacle or walls.
   void handleParticleCollisions(
-      double obstacleX, double obstacleY, double obstacleRadius,
-      double obstacleVelX, double obstacleVelY) {
+      double obstacleX,
+      double obstacleY,
+      double obstacleRadius,
+      double obstacleVelX,
+      double obstacleVelY) {
     double h_ = 1.0 / fInvSpacing;
     double r = particleRadius;
     double minDist = obstacleRadius + r;
@@ -252,9 +261,37 @@ class FlipFluid {
 
       // Obstacle collision
       if (d2 < minDist2) {
-        // Instead of repositioning, we set velocity to that of obstacle
-        particleVel[2 * i] = obstacleVelX;
-        particleVel[2 * i + 1] = obstacleVelY;
+        double d = math.sqrt(d2);
+        if (d == 0.0) {
+          // Prevent division by zero
+          d = minDist;
+          dx = minDist;
+          dy = 0.0;
+        }
+        double overlap = minDist - d;
+        double nx = dx / d;
+        double ny = dy / d;
+
+        // Push the particle out of the obstacle
+        particlePos[2 * i] += nx * overlap;
+        particlePos[2 * i + 1] += ny * overlap;
+
+        // Reflect velocity relative to obstacle's velocity
+        double pvx = particleVel[2 * i];
+        double pvy = particleVel[2 * i + 1];
+
+        // Relative velocity
+        double rvx = pvx - obstacleVelX;
+        double rvy = pvy - obstacleVelY;
+
+        // Dot product with normal
+        double dot = rvx * nx + rvy * ny;
+
+        if (dot < 0) {
+          // Reflect the velocity
+          particleVel[2 * i] = obstacleVelX + rvx - 2 * dot * nx;
+          particleVel[2 * i + 1] = obstacleVelY + rvy - 2 * dot * ny;
+        }
       }
 
       // Wall collisions
@@ -282,9 +319,8 @@ class FlipFluid {
   /// Updates particle density based on their positions.
   void updateParticleDensity() {
     int n = fNumY;
-    double h_ = h;
     double h1 = fInvSpacing;
-    double h2 = 0.5 * h_;
+    double h2 = 0.5 * h;
 
     particleDensity.fillRange(0, particleDensity.length, 0.0);
 
@@ -292,15 +328,15 @@ class FlipFluid {
       double x = particlePos[2 * i];
       double y = particlePos[2 * i + 1];
 
-      x = clampValue(x, h_, (fNumX - 1) * h_);
-      y = clampValue(y, h_, (fNumY - 1) * h_);
+      x = clampValue(x, h, (fNumX - 1) * h);
+      y = clampValue(y, h, (fNumY - 1) * h);
 
       int x0 = ((x - h2) * h1).floor();
-      double tx = ((x - h2) - x0 * h_) * h1;
+      double tx = ((x - h2) - x0 * h) * h1;
       int x1 = math.min(x0 + 1, fNumX - 2);
 
       int y0 = ((y - h2) * h1).floor();
-      double ty = ((y - h2) - y0 * h_) * h1;
+      double ty = ((y - h2) - y0 * h) * h1;
       int y1 = math.min(y0 + 1, fNumY - 2);
 
       double sx = 1.0 - tx;
@@ -340,7 +376,7 @@ class FlipFluid {
     int n = fNumY;
     double h_ = h;
     double h1 = fInvSpacing;
-    double h2 = 0.5 * h_;
+    double h2 = 0.5 * h;
 
     if (toGrid) {
       prevU.setAll(0, u);
@@ -381,15 +417,15 @@ class FlipFluid {
         double x = particlePos[2 * i];
         double y = particlePos[2 * i + 1];
 
-        x = clampValue(x, h_, (fNumX - 1) * h_);
-        y = clampValue(y, h_, (fNumY - 1) * h_);
+        x = clampValue(x, h, (fNumX - 1) * h);
+        y = clampValue(y, h, (fNumY - 1) * h);
 
         int x0 = math.min(((x - dx) * h1).floor(), fNumX - 2);
-        double tx = ((x - dx) - x0 * h_) * h1;
+        double tx = ((x - dx) - x0 * h) * h1;
         int x1 = math.min(x0 + 1, fNumX - 2);
 
         int y0 = math.min(((y - dy) * h1).floor(), fNumY - 2);
-        double ty = ((y - dy) - y0 * h_) * h1;
+        double ty = ((y - dy) - y0 * h) * h1;
         int y1 = math.min(y0 + 1, fNumY - 2);
 
         double sx = 1.0 - tx;
@@ -419,7 +455,6 @@ class FlipFluid {
 
           fArr[nr3] += pv * d3;
           dArr[nr3] += d3;
-
         } else {
           // from grid to particleVel (FLIP or PIC)
           int offset = (component == 0) ? n : 1;
@@ -534,9 +569,9 @@ class FlipFluid {
           p[center] += cp * p_;
 
           u[center] -= sx0 * p_;
-          u[right]  += sx1 * p_;
+          u[right] += sx1 * p_;
           v[center] -= sy0 * p_;
-          v[top]    += sy1 * p_;
+          v[top] += sy1 * p_;
         }
       }
     }
@@ -547,11 +582,14 @@ class FlipFluid {
     double h1 = fInvSpacing;
 
     for (int i = 0; i < numParticles; i++) {
-      // fade to white (example logic)
+      // Fade to white (example logic)
       double s = 0.01;
-      particleColor[3 * i]     = clampValue(particleColor[3 * i] - s, 0.0, 1.0);
-      particleColor[3 * i + 1] = clampValue(particleColor[3 * i + 1] - s, 0.0, 1.0);
-      particleColor[3 * i + 2] = clampValue(particleColor[3 * i + 2] + s, 0.0, 1.0);
+      particleColor[3 * i] =
+          clampValue(particleColor[3 * i] - s, 0.0, 1.0); // R
+      particleColor[3 * i + 1] =
+          clampValue(particleColor[3 * i + 1] - s, 0.0, 1.0); // G
+      particleColor[3 * i + 2] =
+          clampValue(particleColor[3 * i + 2] + s, 0.0, 1.0); // B
 
       double x = particlePos[2 * i];
       double y = particlePos[2 * i + 1];
@@ -564,7 +602,7 @@ class FlipFluid {
         double relDensity = particleDensity[cellNr] / d0;
         if (relDensity < 0.7) {
           double s_ = 0.8;
-          particleColor[3 * i]     = s_;
+          particleColor[3 * i] = s_;
           particleColor[3 * i + 1] = s_;
           particleColor[3 * i + 2] = 1.0;
         }
@@ -604,7 +642,7 @@ class FlipFluid {
         b = 0.0;
         break;
     }
-    cellColor[3 * cellNr]     = r;
+    cellColor[3 * cellNr] = r;
     cellColor[3 * cellNr + 1] = g;
     cellColor[3 * cellNr + 2] = b;
   }
@@ -615,7 +653,7 @@ class FlipFluid {
     cellColor.fillRange(0, cellColor.length, 0.0);
     for (int i = 0; i < fNumCells; i++) {
       if (cellType[i] == CellType.solid.index) {
-        cellColor[3 * i]     = 0.5;
+        cellColor[3 * i] = 0.5;
         cellColor[3 * i + 1] = 0.5;
         cellColor[3 * i + 2] = 0.5;
       } else if (cellType[i] == CellType.fluid.index) {
@@ -648,11 +686,12 @@ class FlipFluid {
       if (separateParticles) {
         pushParticlesApart(numParticleIters);
       }
-      handleParticleCollisions(obstacleX, obstacleY, obstacleRadius,
-          obstacleVelX, obstacleVelY);
+      handleParticleCollisions(
+          obstacleX, obstacleY, obstacleRadius, obstacleVelX, obstacleVelY);
       transferVelocities(true);
       updateParticleDensity();
-      solveIncompressibility(numPressureIters, sdt, overRelaxation, compensateDrift);
+      solveIncompressibility(
+          numPressureIters, sdt, overRelaxation, compensateDrift);
       transferVelocities(false, flipRatio);
     }
     updateParticleColors();
@@ -774,25 +813,33 @@ class _FluidDemoPageState extends State<FluidDemoPage>
     // Initialize FlipFluid
     double density = 1000.0;
     int res = 100;
-    double relWaterHeight = 0.4;
-    double relWaterWidth = 0.3;
+    double relWaterHeight = 0.8;
+    double relWaterWidth = 0.6;
 
     double h = tankHeight / res;
     double dx = 2.0 * particleRadius;
     double dy = math.sqrt(3.0) / 2.0 * dx;
 
-    int numX = ((relWaterWidth * tankWidth - 2.0 * h - 2.0 * particleRadius) / dx).floor();
-    int numY = ((relWaterHeight * tankHeight - 2.0 * h - 2.0 * particleRadius) / dy).floor();
+    int numX =
+    ((relWaterWidth * tankWidth - 2.0 * h - 2.0 * particleRadius) / dx)
+        .floor();
+    int numY =
+    ((relWaterHeight * tankHeight - 2.0 * h - 2.0 * particleRadius) / dy)
+        .floor();
     int maxParticles = numX * numY;
 
-    scene.fluid = FlipFluid(density, tankWidth, tankHeight, h, particleRadius, maxParticles);
+    scene.fluid = FlipFluid(density, tankWidth, tankHeight, h, particleRadius,
+        maxParticles);
 
     // Fill particle positions
     scene.fluid.numParticles = numX * numY;
     int p = 0;
     for (int i = 0; i < numX; i++) {
       for (int j = 0; j < numY; j++) {
-        scene.fluid.particlePos[p++] = h + particleRadius + dx * i + ((j % 2 == 0) ? 0.0 : particleRadius);
+        scene.fluid.particlePos[p++] = h +
+            particleRadius +
+            dx * i +
+            ((j % 2 == 0) ? 0.0 : particleRadius);
         scene.fluid.particlePos[p++] = h + particleRadius + dy * j;
       }
     }
@@ -802,7 +849,7 @@ class _FluidDemoPageState extends State<FluidDemoPage>
     for (int i = 0; i < scene.fluid.fNumX; i++) {
       for (int j = 0; j < scene.fluid.fNumY; j++) {
         double val = 1.0; // Fluid by default
-        if (i == 0 || i == scene.fluid.fNumX - 1 || j == 0) {
+        if (i == 0 || i == scene.fluid.fNumX - 1 || j == 0 || j == scene.fluid.fNumY - 1) {
           val = 0.0; // Solid boundary
         }
         scene.fluid.s[i * n + j] = val;
@@ -821,17 +868,44 @@ class _FluidDemoPageState extends State<FluidDemoPage>
       vx = (x - scene.obstacleX) / scene.dt;
       vy = (y - scene.obstacleY) / scene.dt;
     }
+    // Update obstacle position before calculating velocity
+    double previousX = scene.obstacleX;
+    double previousY = scene.obstacleY;
     scene.obstacleX = x;
     scene.obstacleY = y;
+
+    // Calculate velocity based on previous position
+    if (!reset) {
+      vx = (x - previousX) / scene.dt;
+      vy = (y - previousY) / scene.dt;
+    }
+
     double r = scene.obstacleRadius;
     var f = scene.fluid;
     int n = f.fNumY;
 
-    for (int i = 1; i < f.fNumX - 2; i++) {
-      for (int j = 1; j < f.fNumY - 2; j++) {
-        f.s[i * n + j] = 1.0; // Reset to fluid
-        double dx = (i + 0.5) * f.h - x;
-        double dy = (j + 0.5) * f.h - y;
+    if (reset) {
+      // In setupScene, set tank's boundaries
+      for (int i = 0; i < f.fNumX; i++) {
+        for (int j = 0; j < f.fNumY; j++) {
+          if (i == 0 || i == f.fNumX - 1 || j == 0 || j == f.fNumY - 1) {
+            f.s[i * n + j] = 0.0; // Solid boundary
+            f.u[i * n + j] = 0.0;
+            f.v[i * n + j] = 0.0;
+          } else {
+            f.s[i * n + j] = 1.0; // Fluid
+          }
+        }
+      }
+    }
+
+    // Now, mark obstacle's new solid cells
+    for (int i = 1; i < f.fNumX - 1; i++) {
+      for (int j = 1; j < f.fNumY - 1; j++) {
+        double cellX = (i + 0.5) * f.h;
+        double cellY = (j + 0.5) * f.h;
+        double dx = cellX - x;
+        double dy = cellY - y;
         if (dx * dx + dy * dy < r * r) {
           f.s[i * n + j] = 0.0; // Solid obstacle
           f.u[i * n + j] = vx;
@@ -846,14 +920,16 @@ class _FluidDemoPageState extends State<FluidDemoPage>
   }
 
   /// Handles obstacle interaction based on gesture details.
-  void _handleObstacleInteraction(dynamic details, double cScale, Size canvasSize) {
+  void _handleObstacleInteraction(
+      dynamic details, double cScale, Size canvasSize) {
+    // Since GestureDetector wraps only the CustomPaint (canvas),
+    // localPosition is already relative to the canvas.
     if (details is DragDownDetails) {
       // Handle DragDownDetails
       final Offset localPos = details.localPosition;
 
-      // Adjust for the control panel's width (250 pixels)
-      double controlPanelWidth = 250.0;
-      double adjustedX = (localPos.dx - controlPanelWidth) / cScale;
+      // No need to subtract control panel width since GestureDetector is confined to the canvas
+      double adjustedX = localPos.dx / cScale;
       double adjustedY = (canvasSize.height - localPos.dy) / cScale; // Flip Y-axis
 
       // Clamp to simulation boundaries
@@ -861,17 +937,15 @@ class _FluidDemoPageState extends State<FluidDemoPage>
       adjustedY = adjustedY.clamp(0.0, simHeight);
 
       setState(() {
-        scene.obstacleX = adjustedX;
-        scene.obstacleY = adjustedY;
+        setObstacle(adjustedX, adjustedY, reset: false);
         scene.paused = false; // Unpause when interacting
       });
     } else if (details is DragUpdateDetails) {
       // Handle DragUpdateDetails
       final Offset localPos = details.localPosition;
 
-      // Adjust for the control panel's width (250 pixels)
-      double controlPanelWidth = 250.0;
-      double adjustedX = (localPos.dx - controlPanelWidth) / cScale;
+      // No need to subtract control panel width since GestureDetector is confined to the canvas
+      double adjustedX = localPos.dx / cScale;
       double adjustedY = (canvasSize.height - localPos.dy) / cScale; // Flip Y-axis
 
       // Clamp to simulation boundaries
@@ -879,8 +953,7 @@ class _FluidDemoPageState extends State<FluidDemoPage>
       adjustedY = adjustedY.clamp(0.0, simHeight);
 
       setState(() {
-        scene.obstacleX = adjustedX;
-        scene.obstacleY = adjustedY;
+        setObstacle(adjustedX, adjustedY, reset: false);
       });
     }
   }
@@ -902,6 +975,7 @@ class _FluidDemoPageState extends State<FluidDemoPage>
 
           if (!_isSceneInitialized) {
             setupScene(canvasWidth, canvasHeight);
+            _isSceneInitialized = true; // Mark as initialized
           }
 
           return Row(
@@ -984,20 +1058,24 @@ class _FluidDemoPageState extends State<FluidDemoPage>
                 child: GestureDetector(
                   onPanDown: (details) {
                     pointerDown = true;
-                    _handleObstacleInteraction(details, cScaleLocal, Size(canvasWidth, canvasHeight));
+                    _handleObstacleInteraction(
+                        details, cScaleLocal, Size(canvasWidth, canvasHeight));
                   },
                   onPanUpdate: (details) {
                     if (pointerDown) {
-                      _handleObstacleInteraction(details, cScaleLocal, Size(canvasWidth, canvasHeight));
+                      _handleObstacleInteraction(
+                          details, cScaleLocal, Size(canvasWidth, canvasHeight));
                     }
                   },
                   onPanEnd: (details) {
                     pointerDown = false;
+                    // Optional: You can implement inertia or momentum here if desired
                     scene.obstacleVelX = 0.0;
                     scene.obstacleVelY = 0.0;
                   },
                   child: CustomPaint(
-                    painter: FluidPainter(scene, simWidthLocal, simHeight, cScaleLocal),
+                    painter: FluidPainter(
+                        scene, simWidthLocal, simHeight, cScaleLocal),
                     size: Size(canvasWidth, canvasHeight),
                     child: Container(),
                   ),
