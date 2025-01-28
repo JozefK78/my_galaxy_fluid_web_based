@@ -149,8 +149,10 @@ class FlipFluid {
       double x = particlePos[2 * i];
       double y = particlePos[2 * i + 1];
 
-      int xi = clampValue((x * pInvSpacing).floorToDouble(), 0, pNumX - 1).toInt();
-      int yi = clampValue((y * pInvSpacing).floorToDouble(), 0, pNumY - 1).toInt();
+      int xi =
+      clampValue((x * pInvSpacing).floorToDouble(), 0, pNumX - 1).toInt();
+      int yi =
+      clampValue((y * pInvSpacing).floorToDouble(), 0, pNumY - 1).toInt();
       int cellNr = xi * pNumY + yi;
       numCellParticles[cellNr]++;
     }
@@ -168,8 +170,10 @@ class FlipFluid {
       double x = particlePos[2 * i];
       double y = particlePos[2 * i + 1];
 
-      int xi = clampValue((x * pInvSpacing).floorToDouble(), 0, pNumX - 1).toInt();
-      int yi = clampValue((y * pInvSpacing).floorToDouble(), 0, pNumY - 1).toInt();
+      int xi =
+      clampValue((x * pInvSpacing).floorToDouble(), 0, pNumX - 1).toInt();
+      int yi =
+      clampValue((y * pInvSpacing).floorToDouble(), 0, pNumY - 1).toInt();
       int cellNr = xi * pNumY + yi;
       firstCellParticle[cellNr]--;
       cellParticleIds[firstCellParticle[cellNr]] = i;
@@ -235,12 +239,8 @@ class FlipFluid {
   }
 
   /// Handles collisions between particles and the obstacle or walls.
-  void handleParticleCollisions(
-      double obstacleX,
-      double obstacleY,
-      double obstacleRadius,
-      double obstacleVelX,
-      double obstacleVelY) {
+  void handleParticleCollisions(double obstacleX, double obstacleY,
+      double obstacleRadius, double obstacleVelX, double obstacleVelY) {
     double h_ = 1.0 / fInvSpacing;
     double r = particleRadius;
     double minDist = obstacleRadius + r;
@@ -764,6 +764,9 @@ class _FluidDemoPageState extends State<FluidDemoPage>
   // Add a flag to prevent multiple initializations
   bool _isSceneInitialized = false;
 
+  // New variable for rendering fraction
+  double _renderingFraction = 1.0; // 100% by default
+
   @override
   void initState() {
     super.initState();
@@ -849,7 +852,10 @@ class _FluidDemoPageState extends State<FluidDemoPage>
     for (int i = 0; i < scene.fluid.fNumX; i++) {
       for (int j = 0; j < scene.fluid.fNumY; j++) {
         double val = 1.0; // Fluid by default
-        if (i == 0 || i == scene.fluid.fNumX - 1 || j == 0 || j == scene.fluid.fNumY - 1) {
+        if (i == 0 ||
+            i == scene.fluid.fNumX - 1 ||
+            j == 0 ||
+            j == scene.fluid.fNumY - 1) {
           val = 0.0; // Solid boundary
         }
         scene.fluid.s[i * n + j] = val;
@@ -888,7 +894,10 @@ class _FluidDemoPageState extends State<FluidDemoPage>
       // In setupScene, set tank's boundaries
       for (int i = 0; i < f.fNumX; i++) {
         for (int j = 0; j < f.fNumY; j++) {
-          if (i == 0 || i == f.fNumX - 1 || j == 0 || j == f.fNumY - 1) {
+          if (i == 0 ||
+              i == f.fNumX - 1 ||
+              j == 0 ||
+              j == f.fNumY - 1) {
             f.s[i * n + j] = 0.0; // Solid boundary
             f.u[i * n + j] = 0.0;
             f.v[i * n + j] = 0.0;
@@ -1049,6 +1058,30 @@ class _FluidDemoPageState extends State<FluidDemoPage>
                           });
                         },
                       ),
+                      const SizedBox(height: 20),
+                      // New: Rendering Fraction Slider
+                      const Text("Render Percentage"),
+                      Slider(
+                        min: 0.1,
+                        max: 1.0,
+                        divisions: 9,
+                        value: _renderingFraction,
+                        label:
+                        "${(_renderingFraction * 100).toInt()}%", // Show percentage
+                        onChanged: (val) {
+                          setState(() {
+                            _renderingFraction = val;
+                          });
+                        },
+                      ),
+                      Text(
+                          "${(_renderingFraction * 100).toInt()}% of Particles Rendered"),
+                      const SizedBox(height: 10),
+                      // Display current number of particles and rendered particles
+                      Text(
+                          "Total Particles: ${scene.fluid.numParticles}"),
+                      Text(
+                          "Rendered Particles: ${(scene.fluid.numParticles * _renderingFraction).floor()}"),
                     ],
                   ),
                 ),
@@ -1058,13 +1091,13 @@ class _FluidDemoPageState extends State<FluidDemoPage>
                 child: GestureDetector(
                   onPanDown: (details) {
                     pointerDown = true;
-                    _handleObstacleInteraction(
-                        details, cScaleLocal, Size(canvasWidth, canvasHeight));
+                    _handleObstacleInteraction(details, cScaleLocal,
+                        Size(canvasWidth, canvasHeight));
                   },
                   onPanUpdate: (details) {
                     if (pointerDown) {
-                      _handleObstacleInteraction(
-                          details, cScaleLocal, Size(canvasWidth, canvasHeight));
+                      _handleObstacleInteraction(details, cScaleLocal,
+                          Size(canvasWidth, canvasHeight));
                     }
                   },
                   onPanEnd: (details) {
@@ -1074,8 +1107,8 @@ class _FluidDemoPageState extends State<FluidDemoPage>
                     scene.obstacleVelY = 0.0;
                   },
                   child: CustomPaint(
-                    painter: FluidPainter(
-                        scene, simWidthLocal, simHeight, cScaleLocal),
+                    painter: FluidPainter(scene, simWidthLocal, simHeight,
+                        cScaleLocal, _renderingFraction),
                     size: Size(canvasWidth, canvasHeight),
                     child: Container(),
                   ),
@@ -1095,6 +1128,7 @@ class FluidPainter extends CustomPainter {
   final double simWidth;
   final double simHeight;
   final double cScale;
+  final double renderingFraction; // New: Fraction of particles to render
 
   // Reusable Paint objects to optimize performance
   final Paint _backgroundPaint = Paint()..color = Colors.black;
@@ -1109,7 +1143,8 @@ class FluidPainter extends CustomPainter {
     ..color = Colors.red
     ..style = PaintingStyle.fill;
 
-  FluidPainter(this.scene, this.simWidth, this.simHeight, this.cScale);
+  FluidPainter(this.scene, this.simWidth, this.simHeight, this.cScale,
+      this.renderingFraction);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1175,11 +1210,14 @@ class FluidPainter extends CustomPainter {
     }
   }
 
-  /// Draws all the particles using a single drawPoints call for efficiency.
+  /// Draws all the particles using a subset based on renderingFraction.
   void _drawParticles(Canvas canvas, FlipFluid f) {
     final List<Offset> points = <Offset>[];
 
-    for (int i = 0; i < f.numParticles; i++) {
+    int numToRender = (f.numParticles * renderingFraction).floor();
+
+    // To ensure consistent rendering, render the first N particles
+    for (int i = 0; i < numToRender; i++) {
       double x = f.particlePos[2 * i];
       double y = f.particlePos[2 * i + 1];
       double sy = simHeight - y; // Flip Y-axis
@@ -1190,7 +1228,7 @@ class FluidPainter extends CustomPainter {
       points.add(Offset(x * cScale, sy * cScale));
     }
 
-    // Draw all particles in a single draw call
+    // Draw all selected particles in a single draw call
     canvas.drawPoints(PointMode.points, points, _particlePaint);
   }
 
